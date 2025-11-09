@@ -1,0 +1,20 @@
+__pycache__/
+*.pyc
+.DS_Store
+venv/
+venv311/
+archive.zip
+dataset/
+datasets/
+datasets_full/
+images/
+old_dataset/
+debug_log.txt
+temp_*
+models/*.h5
+models/*.joblib
+
+# ✅ Keep only important files
+!*.py
+!*.md
+!requirements.txt
