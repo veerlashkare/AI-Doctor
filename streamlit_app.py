@@ -1,4 +1,5 @@
 import streamlit as st
+
 import numpy as np
 import pandas as pd
 import tensorflow as tf
@@ -10,7 +11,89 @@ import traceback
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, confusion_matrix
 import matplotlib.pyplot as plt
 import seaborn as sns
+# --- Safe image display across all Streamlit versions ---
+from PIL import Image
+import numpy as np
+import io
+import cv2
+import streamlit as st
 
+def _to_pil(img):
+    """
+    Convert different image types to a Pillow Image:
+      - if img is a streamlit UploadedFile or bytes -> open with PIL
+      - if img is a numpy array (H,W) or (H,W,3) -> convert properly
+    Returns a PIL.Image object.
+    """
+    # uploaded file-like (streamlit uploaded file) or raw bytes
+    try:
+        # if it's a file-like object (UploadedFile) or bytes
+        if hasattr(img, "read"):
+            img.seek(0)
+            return Image.open(img).convert("RGB")
+        if isinstance(img, (bytes, bytearray)):
+            return Image.open(io.BytesIO(img)).convert("RGB")
+    except Exception:
+        pass
+
+    # numpy array (heatmap or overlay)
+    if isinstance(img, np.ndarray):
+        arr = img
+        # if float image [0..1], convert to 0..255
+        if arr.dtype == np.float32 or arr.dtype == np.float64:
+            arr = np.clip(arr * 255.0, 0, 255).astype(np.uint8)
+        # if single-channel, convert to 3-channel
+        if arr.ndim == 2:
+            arr = cv2.cvtColor(arr, cv2.COLOR_GRAY2RGB)
+        elif arr.shape[2] == 4:
+            arr = cv2.cvtColor(arr, cv2.COLOR_RGBA2RGB)
+        elif arr.shape[2] == 3:
+            # assume RGB; but OpenCV uses BGR if produced by cv2 - ensure correct order
+            # we don't know source; if you're using cv2.cvtColor to BGR earlier, convert BGR->RGB
+            # If the array looks like BGR (common), convert:
+            try:
+                # Heuristic: if mean blue channel much larger than red, swap
+                if arr[..., 0].mean() > arr[..., 2].mean() * 1.1:
+                    arr = cv2.cvtColor(arr, cv2.COLOR_BGR2RGB)
+            except Exception:
+                pass
+        return Image.fromarray(arr)
+
+    # fallback: try to create PIL directly
+    try:
+        return Image.open(img).convert("RGB")
+    except Exception:
+        raise ValueError("Unsupported image type for display")
+
+def safe_image_no_kwargs(img, caption=None):
+    """
+    Convert input to PIL and call st.image WITHOUT width/use_container_width kwargs.
+    This avoids all Streamlit-version-specific keyword problems.
+    """
+    pil = _to_pil(img)
+    st.image(pil, caption=caption)
+def safe_image(img, caption=None):
+    """
+    Safely display an image across all Streamlit versions.
+    Works for PIL, numpy arrays, and uploaded files.
+    """
+    try:
+        # ✅ Convert numpy arrays to Pillow image
+        if isinstance(img, np.ndarray):
+            if img.dtype != np.uint8:
+                img = np.clip(img * 255, 0, 255).astype(np.uint8)
+            img = Image.fromarray(img)
+
+        # ✅ Convert UploadedFile or bytes to Pillow image
+        elif hasattr(img, "read"):
+            img.seek(0)
+            img = Image.open(img).convert("RGB")
+
+        # ✅ Display normally (no recursive calls!)
+        st.image(img, caption=caption)
+
+    except Exception as e:
+        st.warning(f"⚠️ Could not display image properly: {e}")
 # =====================================================
 # ⚙️ PAGE CONFIGURATION
 # =====================================================
@@ -347,7 +430,7 @@ with tab_image:
         with open(img_path, "wb") as f:
             f.write(uploaded_img.read())
 
-        st.image(uploaded_img, caption="Uploaded Image", width='stretch')
+        safe_image(uploaded_img, caption="Uploaded Image")
 
         if st.button("Analyze Image"):
             if img_model:
@@ -362,7 +445,7 @@ with tab_image:
                 }, index=["Benign", "Malignant"]))
 
                 st.subheader("🔥 Model Attention (Grad-CAM)")
-                st.image(heatmap_img, caption="Regions Influencing Prediction", use_container_width=True)
+                safe_image(heatmap_img, caption="Regions Influencing Prediction")
             else:
                 st.error("⚠️ Image model not found. Please train it first.")
 
